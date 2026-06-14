@@ -379,7 +379,7 @@ label.field-label {
 // ══════════════════════════════════════════════════════════════
 // CONFIG — substitua pela URL do seu Apps Script publicado
 // ══════════════════════════════════════════════════════════════
-const API_URL = "https://script.google.com/macros/s/AKfycbzHcR04C9s2AiV4hhK6sj8B6wDRBgfeHxb7iNzrliDy-3Xm_bMlpNr9SA3yVQPtjNdMEQ/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbxjyzpSRhj0HwfBX9ppNKtW6u3XdKzS3u9KZ3SIUFUZL5NZCJm7VaXcxoGK2AMDzAhOWg/exec";
 
 // ══════════════════════════════════════════════════════════════
 // STATE
@@ -437,23 +437,26 @@ function progressBar(val, height = 8, color) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// API
+// API — tudo via GET com payload em base64
+// Apps Script não suporta CORS preflight (OPTIONS),
+// então evitamos POST completamente.
 // ══════════════════════════════════════════════════════════════
-async function apiFetch(params) {
+async function api(body) {
+  const { action, ...rest } = body;
   const url = new URL(API_URL);
-  Object.entries(params).forEach(([k,v]) => url.searchParams.set(k,v));
-  const r = await fetch(url);
+  url.searchParams.set("action", action);
+  // payload = base64(JSON) dos demais parâmetros
+  if (Object.keys(rest).length) {
+    url.searchParams.set("payload", btoa(unescape(encodeURIComponent(JSON.stringify(rest)))));
+  }
+  const r = await fetch(url.toString(), { method: "GET" });
+  if (!r.ok) throw new Error("Erro HTTP " + r.status);
   return r.json();
 }
 
-async function apiPost(body) {
-  const r = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return r.json();
-}
+// aliases para não precisar mudar todas as chamadas
+const apiFetch = api;
+const apiPost  = api;
 
 // ══════════════════════════════════════════════════════════════
 // TOAST
@@ -482,12 +485,11 @@ document.getElementById("btn-login").onclick = async () => {
   btn.disabled = true; btn.textContent = "Entrando…";
 
   try {
-    const res = await apiPost({ action: "login", username, password });
+    const res = await api({ action: "login", username, password });
     if (!res.ok) throw new Error(res.error);
 
-    // gera token local simples (o Script valida via decodificação)
-    const token = btoa(`${res.data.id}|${res.data.role}|${API_URL.slice(-6)}`);
-    state.user  = { ...res.data, token };
+    // token vem do servidor (gerado via Utilities.base64Encode no Apps Script)
+    state.user = { ...res.data };
     localStorage.setItem("gs_session", JSON.stringify(state.user));
 
     showApp();
